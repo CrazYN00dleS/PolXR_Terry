@@ -12,6 +12,8 @@ using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Reflection;
+using Photon.Pun;
+using Photon.Realtime;
 
 public class LoadFlightLines : MonoBehaviour
 {
@@ -45,6 +47,7 @@ public class LoadFlightLines : MonoBehaviour
             string key = meshForward.name.Substring(meshForward.name.IndexOf('_', meshForward.name.Length - 5));
             GameObject line = polylines[key];
             line.name = $"FL_{meshForward.name.Trim().Substring(5)}";
+            PhotonView linePhotonView = line.AddComponent<PhotonView>();
 
             // Create a parent for all the new objects to associate with RadarEvents3D
             string parentName = "#" + key; //"GRP_" + meshForward.name;
@@ -55,7 +58,10 @@ public class LoadFlightLines : MonoBehaviour
             parent.transform.localPosition = new Vector3(0, 0, 0);
             parent.transform.rotation = Quaternion.identity;
             BoundsControl parentBoundsControl = parent.AddComponent<BoundsControl>();
-
+            PhotonView parentPhotonView = parent.AddComponent<PhotonView>();
+            parentPhotonView.ObservedComponents = new List<Component>();
+            parentPhotonView.ObservedComponents.Add(script);
+            parentPhotonView.ViewID = PhotonNetwork.AllocateViewID(i);
             // Create a parent to group both radargram objects
             GameObject radargram = new GameObject("OBJ_" + meshForward.name);
             radargram.transform.localPosition = meshBounds.center;
@@ -100,6 +106,15 @@ public class LoadFlightLines : MonoBehaviour
             radargram.AddComponent<NearInteractionGrabbable>();
             Microsoft.MixedReality.Toolkit.UI.ObjectManipulator objectManipulator = radargram.GetComponent<Microsoft.MixedReality.Toolkit.UI.ObjectManipulator>();
             objectManipulator.enabled = true;
+
+            // Add PhotonTransformView So that the position will sycrnize
+            PhotonView photonView = radargram.AddComponent<PhotonView>();
+            PhotonTransformView photonTransformView = radargram.AddComponent<PhotonTransformView>();
+            // Because we have to dynamicly generate radar diagram and they are not prefab, so we have to use rpc to manually change its position
+            //RadarManager radarManager = radargram.AddComponent<RadarManager>();
+            photonView.ObservedComponents = new List<Component>();
+            photonView.ObservedComponents.Add(photonTransformView);
+            photonView.ViewID = PhotonNetwork.AllocateViewID(i+1+meshes.Length);
 
             // Link the parent to the menu
             script.Menu = GameObject.Find("Menu");

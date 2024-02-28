@@ -8,8 +8,9 @@ using UnityEngine;
 using System;
 using System.IO;
 using System.Linq;
-
-public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
+using Photon.Pun;
+using Photon.Realtime;
+public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler, IPunObservable
 {
 
     // The scientific objects
@@ -19,8 +20,7 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
     public GameObject meshForward;
     public GameObject meshBackward;
     public GameObject gridLine;
-
-    //public GameObject MarkObj3D;
+    private PhotonView photonView; // Reference to the PhotonView component
 
     // Start is called before the first frame update
     void Start()
@@ -30,7 +30,7 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
         flightline = this.transform.GetChild(1).gameObject;
         radargrams = this.transform.GetChild(2).gameObject;
         radarMark = this.transform.GetChild(3).gameObject;
-
+        photonView = GetComponent<PhotonView>();
         meshForward = radargrams.transform.GetChild(0).gameObject;
         meshBackward = radargrams.transform.GetChild(1).gameObject;
         MarkObj3D = radargrams.transform.GetChild(3).gameObject;
@@ -82,6 +82,7 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
         radargrams.SetActive(toggle);
         loaded = toggle;
         MarkObj3D.SetActive(true);
+        //MarkObj3D.SetActive(true);
         //MarkObj.gameObject.SetActive((MarkObj.transform.parent == this.transform) && toggle);
     }
 
@@ -106,6 +107,7 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
     private void Select(ManipulationEventData eventData)
     {
         Select();
+        //Debug.Log(eventData.Pointer.Result.Details.Point);
     }
 
     // Show the menu and mark and update the variables
@@ -132,21 +134,40 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
 
             foreach (RaycastHit obj in hits)
             {
-                if (obj.transform.name.StartsWith("Data") || obj.transform.name.StartsWith("_Data"))
+                if (obj.transform.name.StartsWith("Data"))
                 { //if it hits mesh forward first
+                    //Debug.Log("hit mesh forward");
 
                     DrawMarkObj(obj);
                     Vector2 uvCoordinates = obj.textureCoord;
+                    //Debug.Log("UV Coordinates: " + uvCoordinates);
 
                     Vector3[] worldcoords = GetLinePickingPoints(uvCoordinates, meshForward, obj.transform.name);
                     //draw line
                     DrawPickedPointsAsLine(worldcoords);
                     break;
                 }
+                else if (obj.transform.name.StartsWith("_Data"))
+                { //if ray hits mesh backward
+                    // Debug.Log("hit mesh backward");
+                    DrawMarkObj(obj);
+                    Vector2 uvCoordinates = obj.textureCoord;
+
+                    //for some reason, the uv coordinates for the backwards mesh is not completely reversed, hence the below operation
+                    
+                    uvCoordinates = new Vector2(uvCoordinates.x, uvCoordinates.y);
+
+                    Vector3[] worldcoords = GetLinePickingPoints(uvCoordinates, meshForward, obj.transform.name);
+                    DrawPickedPointsAsLine(worldcoords);
+                    //Debug.Log("UV Coordinates: " + uvCoordinates);
+                    break;
+                }
             }
         }
         // Get the local coordinates of the hit point on the mesh
 
+
+        SendLineInfo();
 
     }
 
@@ -168,38 +189,9 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
         if ((onlyLower && alpha > newAlpha) || !onlyLower) alpha = newAlpha;
         for (int i = 0; i < 2; i++)
         {
-            if(newAlpha == 1)
-                ToOpaqueMode(radargrams.transform.GetChild(i).gameObject.GetComponent<MeshRenderer>().material);
-            else
-                ToFadeMode(radargrams.transform.GetChild(i).gameObject.GetComponent<MeshRenderer>().material);
-            Color color = radargrams.transform.GetChild(i).gameObject.GetComponent<MeshRenderer>().materials[0].color;
+            Color color = radargrams.transform.GetChild(i).gameObject.GetComponent<Renderer>().material.color;
             color.a = newAlpha;
-            radargrams.transform.GetChild(i).gameObject.GetComponent<MeshRenderer>().materials[0].color = color;
         }
-    }
-
-    private static void ToOpaqueMode(Material material)
-    {
-        material.SetOverrideTag("RenderType", "");
-        material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
-        material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
-        material.SetInt("_ZWrite", 1);
-        material.DisableKeyword("_ALPHATEST_ON");
-        material.DisableKeyword("_ALPHABLEND_ON");
-        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        material.renderQueue = -1;
-    }
-
-    private static void ToFadeMode(Material material)
-    {
-        material.SetOverrideTag("RenderType", "Transparent");
-        material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        material.SetInt("_ZWrite", 0);
-        material.DisableKeyword("_ALPHATEST_ON");
-        material.EnableKeyword("_ALPHABLEND_ON");
-        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-        material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
     }
 
     // Just resets the radar transform
@@ -230,9 +222,9 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
     {
         Vector3 localPosition = radargrams.transform.InverseTransformPoint(obj.point);
 
-        MarkObj3D.SetActive(true);
-        MarkObj3D.transform.rotation = radargrams.transform.rotation;
-        MarkObj3D.transform.localPosition = localPosition;
+        //MarkObj3D.SetActive(true);
+        //MarkObj3D.transform.rotation = radargrams.transform.rotation;
+        //MarkObj3D.transform.localPosition = localPosition;
 
         //draw a sphere at the point of intersection
         //sphere uses world coordinates
@@ -254,10 +246,10 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
 
         //read in image
         //these ones are horizontal
-        // the reason why we don't just directly use the images for the radargram mesh textures is because they are rotated
         string path = Path.Combine(Application.dataPath, "Resources/Radar3D/HorizontalRadar", imgname).Replace('\\', '/');
         
-        // Note to future self: do cost benefit analysis of using texture maps vs bitmaps to read in images
+        //vertical pics because rotating uv coordinates was a nightmare
+        //string path = Path.Combine(Application.dataPath, "Resources/Materials/Radar3D/20100324_01", imgname).Replace('\\', '/');
         byte[] fileData = System.IO.File.ReadAllBytes(path);
         Texture2D texture = new Texture2D(2, 2); 
         texture.LoadImage(fileData);
@@ -268,9 +260,10 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
 
         int h = (int)texture.height;
         int w = (int)texture.width;
+        //Debug.Log("image height and width " + h + " " +w);
 
         // Line picking
-        
+        //Bitmap finalImg = new Bitmap(bwImage);
         int windowSize = 21;
         int halfWin = (int)windowSize / 2;
 
@@ -282,10 +275,9 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
         int prevX = beginX;
         int prevY = h - beginY;
 
-        //for debugging reasons we have 2 arrays, but linecoordsxy doesn't really get used
-        //it stores the x,y, coordinates of the picked points
-        //linecoordsxy will be important for exporting the coordinates
-        //we use the uvs array one to draw the line in 3d in Unity
+        Debug.Log("image beginX and beginY " + beginX + " " +beginY);
+
+        //for debugging reasons we have 2 arrays, we only need the uv one
 
         int[,] linecoordsxy = new int[w, 2];
         Vector2[] uvs = new Vector2[w];
@@ -312,9 +304,11 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
             }
             linecoordsxy[j, 0] = col; // setting x
             linecoordsxy[j, 1] = h - maxlocaly; //setting y, transformed back to origin in top left
+            //Debug.Log("brightest pixel value in every column" + maxlocalval);
             prevY = maxlocaly;
             uvs[j] = new Vector2((float)linecoordsxy[j, 1]/h, (float)linecoordsxy[j, 0]/w); 
             maxlocalval = 0;
+            // Debug.Log("pixel coords x" +uvs[j].x +"  " +uvs[j].y);
             j++;
         }
         
@@ -336,9 +330,11 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
             }
             linecoordsxy[j, 0] = col; // setting x
             linecoordsxy[j, 1] = h - maxlocaly; //setting y, transformed back to origin in top left
+            //Debug.Log("brightest pixel value in every column" + maxlocalval);
             prevY = maxlocaly;
             uvs[j] = new Vector2((float)linecoordsxy[j, 1]/h, (float)linecoordsxy[j, 0]/w); 
             maxlocalval = 0;
+            // Debug.Log("pixel coords x" +uvs[j].x +"  " +uvs[j].y);
             j--;
         }
 
@@ -349,6 +345,7 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
         {
             worldcoords[i] = UvTo3D(uvs[i], curmesh.GetComponent<MeshFilter>().mesh, curmesh.transform);
         }
+        Debug.Log("worldcoords calculated" + worldcoords.Length);
         return worldcoords;
     }
 
@@ -404,6 +401,10 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
 
     public void DrawPickedPointsAsLine(Vector3[] worldcoords)
     {
+        //might need to group line with radargram as parent so that it'll tranform with the mesh?
+        //will deal with later
+        //currently the line is rendered with world coordinates and no parent
+
         List<Vector3> filteredCoords = worldcoords.Where(coord => coord != Vector3.zero).ToList();
         GameObject lineObject = new GameObject("Polyline");
         LineRenderer lineRenderer = lineObject.AddComponent<LineRenderer>();
@@ -417,14 +418,21 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
         lineRenderer.SetPositions(filteredCoords.ToArray());
 
         // Set the color of the line using the Unlit/Color shader
+        //lineRenderer.material = new Material(Shader.Find("Unlit/Color"));
+        //lineRenderer.material = new Material (Shader.Find("Particles/Additive"));
         lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
         Color lineColor = new Color(0.2f, 0.2f, 1f);
         lineRenderer.SetColors(lineColor,lineColor);
+        
+        // lineRenderer.startColor = lineColor;
+        // lineRenderer.endColor = lineColor;
 
-        // after drawing the line in world space, we now give it a parent (the corresponding radargram)
-        // we also turn useWorldSpace to false so that it will move alongside the radargram
-        lineRenderer.transform.SetParent(radargrams.transform, true);
-        lineRenderer.useWorldSpace = false;
+        // Disable shadows
+        lineRenderer.material.SetInt("_ReceiveShadows", 0);
+        lineRenderer.material.SetInt("_CastShadows", 0);
+        
+
+
 
 
 
@@ -460,6 +468,8 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
 
 
 
+
+
         // This draws spheres at each picked point instead of a connected polyline
         // foreach(Vector3 worldcoord in worldcoords){
         //     var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -468,6 +478,87 @@ public class RadarEvents3D : RadarEvents, IMixedRealityPointerHandler
         // }
         
     }
-    
+
+    [System.Serializable]
+    public class LineInfo
+    {
+        public bool isActive;
+        public float r, g, b, a; // Color components
+    }
+
+
+    public void SendLineInfo()
+    {
+        LineInfo lineInfo = new LineInfo
+        {
+            isActive = radargrams.activeSelf,
+            r = flightline.GetComponent<LineRenderer>().startColor.r,
+            g = flightline.GetComponent<LineRenderer>().startColor.g,
+            b = flightline.GetComponent<LineRenderer>().startColor.b,
+            a = flightline.GetComponent<LineRenderer>().startColor.a
+        };
+
+        string json = JsonUtility.ToJson(lineInfo);
+        photonView.RPC("ReceiveLineInfoRPC", RpcTarget.All, json);
+    }
+
+    [PunRPC]
+    void ReceiveLineInfoRPC(string json)
+    {
+        LineInfo lineInfo = JsonUtility.FromJson<LineInfo>(json);
+        Debug.Log("Receiving line info");
+
+        // Apply the received data
+        radargrams.SetActive(lineInfo.isActive);
+        Color newColor = new Color(lineInfo.r, lineInfo.g, lineInfo.b, lineInfo.a);
+        flightline.GetComponent<LineRenderer>().startColor = newColor;
+        flightline.GetComponent<LineRenderer>().endColor = newColor;
+    }
+
+
+    [System.Serializable]
+    public class DiagramInfo
+    {
+        public bool isActive;
+        public float[] position = new float[3];
+        public float[] rotation = new float[4];
+        public float[] scale = new float[3];
+        // Adding color fields if need
+        // public float r, g, b, a;
+    }
+
+    public void SendDiagramInfo(GameObject radargrams, GameObject flightline)
+    {
+        DiagramInfo diagramInfo = new DiagramInfo
+        {
+            isActive = radargrams.activeSelf,
+            //position = new float[] { radargrams.transform.position.x, radargrams.transform.position.y, radargrams.transform.position.z },
+            //rotation = new float[] { radargrams.transform.rotation.x, radargrams.transform.rotation.y, radargrams.transform.rotation.z, radargrams.transform.rotation.w },
+            //scale = new float[] { radargrams.transform.localScale.x, radargrams.transform.localScale.y, radargrams.transform.localScale.z },
+            //get radargram transform and pass its data here
+        };
+
+        string json = JsonUtility.ToJson(diagramInfo);
+        photonView.RPC("ReceiveDiagramInfoRPC", RpcTarget.All, json);
+    }
+
+    [PunRPC]
+    void ReceiveDiagramInfoRPC(string json)
+    {
+        DiagramInfo diagramInfo = JsonUtility.FromJson<DiagramInfo>(json);
+        Debug.Log("Receiving diagram info");
+
+        //radargrams.SetActive(diagramInfo.isActive);
+        //Color newColor = new Color(diagramInfo.r, diagramInfo.g, diagramInfo.b, diagramInfo.a);
+        //flightline.GetComponent<LineRenderer>().startColor = newColor;
+        //flightline.GetComponent<LineRenderer>().endColor = newColor;
+        //just like ReceiveLineInfoRPC copy the json data to local transform in this way we have not to worry about the control change
+    }
+
+
+    public void OnPhotonSerializeView(PhotonStream stream, PhotonMessageInfo info)
+    {
+    }
+
 
 }
